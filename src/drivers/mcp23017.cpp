@@ -135,15 +135,7 @@ void MCP23017::setPortB(uint8_t value) {
     portB_ = value;
     if (!writeRegister(MCP23017_OLATB, portB_)) {
         i2cErrorCount++;
-        
-        // Log I2C errors periodically
-        unsigned long now = millis();
-        if (now - lastI2CErrorLog >= 1000) {  // Every 1 second max
-            Serial.printf("[I2C] ERROR! Writes: %lu, Errors: %lu (%.1f%%)\n",
-                          i2cWriteCount, i2cErrorCount,
-                          (float)i2cErrorCount * 100.0f / i2cWriteCount);
-            lastI2CErrorLog = now;
-        }
+        // NOTE: Serial.printf removed - causes jitter on Core 1
     }
     i2cWriteCount++;
 }

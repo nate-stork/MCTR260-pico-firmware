@@ -185,20 +185,13 @@ void setup() {
     // STEPPER INITIALIZATION (only if motors initialized)
 #if defined(STEPPER_DRIVER_TMC2209) || defined(STEPPER_DRIVER_A4988) || defined(STEPPER_DRIVER_DRV8825)
     if (motorsOk) {
-        Serial.println("[Core0] Configuring steppers...");
+        // NOTE: Microstepping already configured by motor_manager based on STEPPER_MICROSTEPPING
+        // Just set additional TMC2209-specific pins here
+        mcpStepper.setBitA(STPR_ALL_SPRD_BIT, false);  // StealthChop (quiet mode)
+        mcpStepper.setBitA(STPR_ALL_PDN_BIT, true);    // PDN=1 for standalone STEP/DIR mode
+        // EN already set by motor_manager
         
-        // TMC2209 Microstepping (standalone mode):
-        //   MS1=0, MS2=0: 8 microsteps
-        //   MS1=1, MS2=1: 16 microsteps (smoother but slower)
-        //   MS1=1, MS2=0: 32 microsteps
-        //   MS1=0, MS2=1: 64 microsteps
-        mcpStepper.setBitA(STPR_ALL_SPRD_BIT, false);  // StealthChop (quiet)
-        mcpStepper.setBitA(STPR_ALL_MS1_BIT, true);    // MS1=1
-        mcpStepper.setBitA(STPR_ALL_MS2_BIT, true);    // MS2=1 = 16 microsteps
-        mcpStepper.setBitA(STPR_ALL_PDN_BIT, true);    // PDN=1 for standalone mode
-        mcpStepper.setBitA(STPR_ALL_EN_BIT, false);    // EN=0 (enabled)
-        
-        Serial.println("[Core0] Steppers: 16 microsteps, StealthChop");
+        Serial.printf("[Core0] Steppers ready (%d microsteps)\n", STEPPER_MICROSTEPPING);
     }
 #endif
     

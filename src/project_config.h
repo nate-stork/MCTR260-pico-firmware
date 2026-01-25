@@ -151,14 +151,22 @@
 // Base steps per revolution (typically 200 for 1.8° motors)
 #define STEPPER_STEPS_PER_REV   200
 
-// Microstepping divisor (1, 2, 4, 8, 16, 32)
-#define STEPPER_MICROSTEPPING   16
+// Microstepping divisor (8, 16, 32, 64 for TMC2209)
+#define STEPPER_MICROSTEPPING   8
 
 // Maximum step rate (steps per second)
 #define STEPPER_MAX_SPEED       4000.0f
 
 // Acceleration (steps per second squared)
 #define STEPPER_ACCELERATION    8000.0f
+
+// Stepper pulse generation interval (microseconds)
+// Lower = faster response, but more CPU usage
+#define STEPPER_PULSE_INTERVAL_US   500
+
+// Speed deadzone - speeds below this are treated as zero (steps/sec)
+// Prevents jitter from small floating point noise
+#define STEPPER_SPEED_DEADZONE  10.0f
 
 // =============================================================================
 // TIMING PARAMETERS

@@ -7,6 +7,7 @@
 
 #include "simple_stepper.h"
 #include "../drivers/mcp23017.h"
+#include "../project_config.h"  // For STEPPER_* constants
 #include <Arduino.h>
 
 // Step/dir bit definitions for Port B
@@ -21,14 +22,14 @@
 
 // Motor state
 struct MotorState {
-    float targetSpeed;
+    float targetSpeed;   // Commanded speed from joystick
+    float currentSpeed;  // Ramped speed (with acceleration limit)
     float accumulator;
 };
 
 static MotorState motors[4] = {0};
 static const int8_t DIR_INVERT[4] = {-1, 1, -1, 1};
 static unsigned long lastUpdateTime = 0;
-static const unsigned long UPDATE_INTERVAL_US = 500;  // Back to 500us
 
 // Diagnostics
 static unsigned long updateCount = 0;
@@ -37,26 +38,48 @@ static unsigned long lastDiagTime = 0;
 static unsigned long maxLoopTime = 0;
 static bool motorsActive = false;
 
+// Derived constants from config
+// Updates per second = 1,000,000 / STEPPER_PULSE_INTERVAL_US
+// Acceleration per update = STEPPER_ACCELERATION / updates_per_sec
+static const float ACCEL_PER_UPDATE = STEPPER_ACCELERATION / (1000000.0f / STEPPER_PULSE_INTERVAL_US);
+
 void simple_stepper_init() {
     lastUpdateTime = micros();
     lastDiagTime = millis();
     for (int i = 0; i < 4; i++) {
         motors[i].targetSpeed = 0;
+        motors[i].currentSpeed = 0;
         motors[i].accumulator = 0;
     }
-    Serial.println("[SimpleStepper] Init (500us) with diagnostics");
+    Serial.println("[SimpleStepper] Init with acceleration ramping");
 }
 
 void simple_stepper_set_speed(uint8_t motor, float stepsPerSec) {
     if (motor >= 4) return;
-    motors[motor].targetSpeed = stepsPerSec * DIR_INVERT[motor];
+    
+    float newSpeed = stepsPerSec * DIR_INVERT[motor];
+    float oldSpeed = motors[motor].targetSpeed;
+    
+    // FIX #2: Detect direction change INCLUDING transitions through zero
+    // Old logic failed on 0 → -X because oldSpeed was 0
+    // New logic: check if signs differ (treating 0 as sign of the new direction)
+    bool signsOpposite = (newSpeed > 0 && oldSpeed < 0) || (newSpeed < 0 && oldSpeed > 0);
+    
+    // Reset accumulator on direction change OR when entering zero
+    // (FIX #1: Removed asymmetric check for newSpeed < deadzone here)
+    if (signsOpposite) {
+        motors[motor].accumulator = 0;
+        motors[motor].currentSpeed = 0;  // Also reset ramp to prevent stale direction
+    }
+    
+    motors[motor].targetSpeed = newSpeed;
 }
 
 void simple_stepper_update() {
     unsigned long now = micros();
     unsigned long elapsed = now - lastUpdateTime;
     
-    if (elapsed < UPDATE_INTERVAL_US) {
+    if (elapsed < STEPPER_PULSE_INTERVAL_US) {
         return;
     }
     
@@ -75,19 +98,31 @@ void simple_stepper_update() {
     bool anyActive = false;
     
     for (int i = 0; i < 4; i++) {
-        float speed = motors[i].targetSpeed;
-        float absSpeed = fabsf(speed);
+        float target = motors[i].targetSpeed;
+        float current = motors[i].currentSpeed;
+        float prevCurrent = current;  // Save for zero-crossing detection
         
-        // Ignore very low speeds (deadzone to prevent jitter from floating point noise)
-        if (absSpeed < 10.0f) {
+        // Apply acceleration ramping (always, even when decelerating to zero)
+        // FIX #2: Removed aggressive zero-snap that bypassed ramping
+        float diff = target - current;
+        if (fabsf(diff) > ACCEL_PER_UPDATE) {
+            current += (diff > 0) ? ACCEL_PER_UPDATE : -ACCEL_PER_UPDATE;
+        } else {
+            current = target;
+        }
+        motors[i].currentSpeed = current;
+        
+        // Zero-crossing detection: reset accumulator when speed crosses zero
+        bool crossedZero = (prevCurrent > 0 && current <= 0) || (prevCurrent < 0 && current >= 0);
+        if (crossedZero) {
             motors[i].accumulator = 0;
-            continue;
         }
         
-        anyActive = true;
+        float absSpeed = fabsf(current);
         
-        // Direction
-        if (speed > 0) {
+        // FIX #1: Always compute direction bits even when not stepping
+        // This ensures DIR pins are always correct for the NEXT step
+        if (current > 0) {
             switch (i) {
                 case 0: dirMask |= M1_DIR; break;
                 case 1: dirMask |= M2_DIR; break;
@@ -95,8 +130,17 @@ void simple_stepper_update() {
                 case 3: dirMask |= M4_DIR; break;
             }
         }
+        // (If current <= 0, direction bit stays 0, which is the opposite direction)
         
-        // Accumulator
+        // Deadzone check - only skip STEPPING, not direction computation
+        if (absSpeed < STEPPER_SPEED_DEADZONE) {
+            motors[i].accumulator = 0;
+            continue;  // Skip stepping but direction is already set above
+        }
+        
+        anyActive = true;
+        
+        // Accumulator for step timing
         motors[i].accumulator += absSpeed * dt;
         if (motors[i].accumulator >= 1.0f) {
             motors[i].accumulator -= 1.0f;
@@ -112,21 +156,16 @@ void simple_stepper_update() {
         }
     }
     
-    // State transition logging DISABLED - contributes to timing issues
-    // if (anyActive && !motorsActive) {
-    //     motorsActive = true;
-    //     Serial.printf("[Stepper] ACTIVE at %lu ms\n", millis());
-    // } else if (!anyActive && motorsActive) {
-    //     motorsActive = false;
-    //     Serial.printf("[Stepper] STOPPED at %lu ms\n", millis());
-    // }
+    // State tracking
     motorsActive = anyActive;
     
+    // Write to port only when stepping (direction is included with step pulse)
     if (stepMask != 0) {
         mcpStepper.setPortB(dirMask | stepMask);
         delayMicroseconds(5);
         mcpStepper.setPortB(dirMask);
     }
+    // NOTE: Removed always-write-dirMask - was causing I2C saturation at 2kHz
     
     // Periodic diagnostics DISABLED on Core 1 - causes jitter
     // Enable only for debugging, then re-disable
@@ -141,6 +180,7 @@ void simple_stepper_update() {
 void simple_stepper_stop_all() {
     for (int i = 0; i < 4; i++) {
         motors[i].targetSpeed = 0;
+        motors[i].currentSpeed = 0;
         motors[i].accumulator = 0;
     }
     mcpStepper.setPortB(0);

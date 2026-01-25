@@ -80,20 +80,21 @@ bool motors_init() {
     Serial.println("[MotorManager] Steppers enabled");
     
     // Configure microstepping based on project_config.h
-    // MS1=0, MS2=0: Full step
-    // MS1=1, MS2=0: 1/2 step
-    // MS1=0, MS2=1: 1/4 step
-    // MS1=1, MS2=1: 1/8 step
-    #if STEPPER_MICROSTEPPING == 1
-    stepperSetMicrostepping(false, false);  // Full step
-    #elif STEPPER_MICROSTEPPING == 2
-    stepperSetMicrostepping(true, false);   // 1/2 step
-    #elif STEPPER_MICROSTEPPING == 4
-    stepperSetMicrostepping(false, true);   // 1/4 step
-    #elif STEPPER_MICROSTEPPING == 8
-    stepperSetMicrostepping(true, true);    // 1/8 step
+    // TMC2209 Microstepping Table (different from A4988!):
+    //   MS1=0, MS2=0: 8 microsteps
+    //   MS1=1, MS2=1: 16 microsteps
+    //   MS1=1, MS2=0: 32 microsteps
+    //   MS1=0, MS2=1: 64 microsteps
+    #if STEPPER_MICROSTEPPING == 8
+    stepperSetMicrostepping(false, false);  // MS1=0, MS2=0 = 8 microsteps
+    #elif STEPPER_MICROSTEPPING == 16
+    stepperSetMicrostepping(true, true);    // MS1=1, MS2=1 = 16 microsteps
+    #elif STEPPER_MICROSTEPPING == 32
+    stepperSetMicrostepping(true, false);   // MS1=1, MS2=0 = 32 microsteps
+    #elif STEPPER_MICROSTEPPING == 64
+    stepperSetMicrostepping(false, true);   // MS1=0, MS2=1 = 64 microsteps
     #else
-    stepperSetMicrostepping(true, true);    // Default 1/8 step
+    stepperSetMicrostepping(false, false);  // Default 8 microsteps
     #endif
     Serial.printf("[MotorManager] Microstepping: 1/%d\n", STEPPER_MICROSTEPPING);
     
@@ -234,15 +235,18 @@ void motors_update(float dtSec) {
 
 void motors_stop_all() {
     Serial.println("[MotorManager] >>> STOP ALL <<<");
+    
+    // NOTE: Do NOT touch I2C here - Core 1 owns the I2C bus for steppers
+    // The emergency stop is signaled via shared memory in main.cpp
+    // Core 1 will handle stopping the motors safely
+    
+    // For DC motors only (they don't use I2C on this board)
+#if defined(MOTOR_DRIVER_DRV8871) || defined(MOTOR_DRIVER_DRV8833) || defined(MOTOR_DRIVER_L298N)
     for (int i = 0; i < NUM_MOTORS; i++) {
-        if (motors[i]) {
+        if (motors[i] && motors[i]->getType() == MotorType::DC) {
             motors[i]->stop();
         }
     }
-    
-    // Also disable steppers at hardware level for safety
-#if defined(STEPPER_DRIVER_TMC2209) || defined(STEPPER_DRIVER_A4988) || defined(STEPPER_DRIVER_DRV8825)
-    stepperDisableAll();
 #endif
 }
 
