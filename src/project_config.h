@@ -87,13 +87,13 @@
 // =============================================================================
 
 // Wheel radius in millimeters
-#define WHEEL_RADIUS_MM 50.0f
+#define WHEEL_RADIUS_MM 46.665f
 
 // Distance from center to front/back axle (half of wheelbase)
-#define WHEELBASE_HALF_MM 100.0f
+#define WHEELBASE_HALF_MM 103.05f
 
 // Distance from center to left/right wheel (half of track width)
-#define TRACK_WIDTH_HALF_MM 100.0f
+#define TRACK_WIDTH_HALF_MM 124.9f
 
 // NOTE: Joystick deadzone is handled by the Flutter app at input level
 
