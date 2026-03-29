@@ -56,7 +56,7 @@
 // BLE advertised name - CHANGE THIS TO RENAME YOUR ROBOT
 // TIP: Include a keyword the app recognizes so your robot appears at the
 //      top of the scan list: robot, rc, pico, mecanum, tank, meca, controller
-#define DEVICE_NAME "TimberBot_RC"
+#define DEVICE_NAME "HappyMinionRobot"
 
 // 6-digit pairing PIN (must match what you enter on the app)
 #define BLE_PASSKEY 123456
