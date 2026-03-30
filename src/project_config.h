@@ -197,7 +197,7 @@
 #define STEPPER_MICROSTEPPING 8
 
 // Maximum step rate (steps per second)
-#define STEPPER_MAX_SPEED 4000.0f
+#define STEPPER_MAX_SPEED 8000.0f
 
 // Acceleration (steps per second squared)
 #define STEPPER_ACCELERATION 8000.0f
@@ -229,10 +229,10 @@
 // It runs at the same 500µs update rate as M1-M4 but writes to Port A
 // instead of Port B. Control it from the Flutter app's aux sliders.
 
-// #define ENABLE_MOTOR_5                // Uncomment to enable Motor 5
-// #define MOTOR_5_AUX_CHANNEL      0    // Which aux slider controls M5 (0-5)
-// #define MOTOR_5_MAX_SPEED     2000.0f // Max speed in steps/sec
-// #define MOTOR_5_DIR_INVERT       1    // 1 = normal, -1 = reverse
+#define ENABLE_MOTOR_5                // Uncomment to enable Motor 5
+#define MOTOR_5_AUX_CHANNEL      0    // Which aux slider controls M5 (0-5)
+#define MOTOR_5_MAX_SPEED     1000.0f // Max speed in steps/sec
+#define MOTOR_5_DIR_INVERT       1    // 1 = normal, -1 = reverse
 
 // =============================================================================
 // AUXILIARY DC MOTORS (On/off direction via MCP23017 U6_2 Port A)

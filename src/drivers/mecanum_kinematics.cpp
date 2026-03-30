@@ -99,10 +99,15 @@ void mecanum_calculate(float vx, float vy, float omega, float speedMultiplier,
   // Note: Signs may need adjustment based on motor/wheel orientation
   // ==========================================================================
 
-  float fl = vy + vx + omega;
-  float fr = vy - vx - omega;
-  float bl = vy - vx + omega;
-  float br = vy + vx - omega;
+  // float fl = vy + vx + omega;
+  // float fr = vy - vx - omega;
+  // float bl = vy - vx + omega;
+  // float br = vy + vx - omega;
+
+  float bl = vy + vx + omega;
+  float br = vy - vx - omega;
+  float fl = vy - vx + omega;
+  float fr = vy + vx - omega;
 
   // Find the maximum absolute value
   float maxVal = fabsf(fl);
