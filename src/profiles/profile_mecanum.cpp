@@ -73,7 +73,30 @@ void profile_mecanum_apply(const control_command_t *cmd) {
   float vy = 0;    // Forward
   float omega = 0; // Rotation
 
-  if (cmd->right.isJoystick) {
+  static bool toggleFlipped { false };
+  static int timerStart {};
+
+  int driveTime { 2000 }; // driving time in autonomous (in milliseconds)
+
+  // Autonomous
+  if (cmd->toggles[0]) {
+    if (toggleFlipped) {
+      // set Forward 
+      vy = 100;
+      // reset timer to current time
+      timerStart = millis();
+
+      toggleFlipped = true;
+    }
+
+    if (millis() - timerStart >= driveTime) {
+      vy = 0;
+    }
+  }
+  else if (!cmd->toggles[0]) // reset toggle when its flipped off
+    toggleFlipped = false;
+
+  if (cmd->right.isJoystick && !cmd->toggles[0]) {
     vx = cmd->right.x; // Strafe from right X
     vy = cmd->right.y; // Forward from right Y
   }
