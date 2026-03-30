@@ -73,20 +73,27 @@ void profile_mecanum_apply(const control_command_t *cmd) {
   float vy = 0;    // Forward
   float omega = 0; // Rotation
 
-  static bool toggleFlipped { false };
+  float speedMult {};
+
+  static bool toggleFlipped { true };
   static int timerStart {};
 
-  int driveTime { 2000 }; // driving time in autonomous (in milliseconds)
+  int driveTime { 10000 }; // driving time in autonomous (in milliseconds)
 
   // Autonomous
   if (cmd->toggles[0]) {
+    // set Forward 
+    vy = 100;
+    
     if (toggleFlipped) {
-      // set Forward 
-      vy = 100;
+
       // reset timer to current time
       timerStart = millis();
 
-      toggleFlipped = true;
+      // set speed multipler to fixed amount (0.30)
+      speedMult = 0.3f;
+
+      toggleFlipped = false;
     }
 
     if (millis() - timerStart >= driveTime) {
@@ -94,10 +101,10 @@ void profile_mecanum_apply(const control_command_t *cmd) {
     }
   }
   else if (!cmd->toggles[0]) // reset toggle when its flipped off
-    toggleFlipped = false;
+    toggleFlipped = true;
 
   if (cmd->right.isJoystick && !cmd->toggles[0]) {
-    vx = cmd->right.x; // Strafe from right X
+    // vx = cmd->right.x; // Strafe from right X
     vy = cmd->right.y; // Forward from right Y
   }
 
@@ -107,8 +114,10 @@ void profile_mecanum_apply(const control_command_t *cmd) {
     omega = cmd->left.value; // Rotation from dial
   }
 
+  
   // Speed multiplier (0-100 -> 0.0-1.0)
-  float speedMult = cmd->speed / 100.0f;
+  if (!cmd->toggles[0])
+    float speedMult = cmd->speed / 100.0f;
 
   // Calculate wheel speeds
   WheelSpeeds wheels;
