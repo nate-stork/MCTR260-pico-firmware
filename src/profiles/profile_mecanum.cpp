@@ -23,6 +23,12 @@
  *     mecanum:  left=dial(rotation)  right=joystick(translation)
  *     fourwheel: left=dial(steering) right=slider(throttle)
  *     tracked:   left=slider(L)      right=slider(R)
+ *
+ * AUTONOMOUS MODE (toggle 0):
+ *   When cmd->toggles[0] is true, the robot drives straight forward at a
+ *   fixed speed for AUTONOMOUS_DRIVE_TIME_MS milliseconds, then stops.
+ *   The timer resets each time the toggle is turned on. Manual joystick
+ *   input is ignored while autonomous is active.
  */
 
 #include "profile_mecanum.h"
@@ -43,6 +49,20 @@ extern mutex_t g_speedMutex;
 extern volatile float g_targetSpeeds[4];
 extern volatile bool g_speedsUpdated;
 
+// =============================================================================
+// AUTONOMOUS MODE PARAMETERS
+// =============================================================================
+
+// How long to drive forward when toggle 0 is activated (milliseconds)
+static const unsigned long AUTONOMOUS_DRIVE_TIME_MS = 25000UL;
+
+// Forward speed during autonomous (0-100 scale, same as joystick)
+static const float AUTONOMOUS_FORWARD_SPEED = 100.0f;
+
+// Speed multiplier during autonomous (0.0-1.0). Kept moderate so the
+// robot doesn't lurch at full speed. Tune this for your chassis.
+static const float AUTONOMOUS_SPEED_MULT = 0.3f;
+
 /**
  * @details INPUT MAPPING:
  *   The Flutter app sends two control inputs: "left" and "right".
@@ -50,6 +70,14 @@ extern volatile bool g_speedsUpdated;
  *     Right (joystick): x -> vx (strafe), y -> vy (forward)
  *     Left (dial):      value -> omega (rotation)
  *   If left is a joystick instead of a dial, its X axis is used for rotation.
+ *
+ * AUTONOMOUS MODE:
+ *   When toggles[0] is pressed, the robot enters autonomous mode:
+ *     - On the rising edge (toggleFlipped), the 10-second timer is reset.
+ *     - vy is set to AUTONOMOUS_FORWARD_SPEED for the duration.
+ *     - Once AUTONOMOUS_DRIVE_TIME_MS elapses, the robot stops (vy = 0).
+ *     - Joystick input is ignored while autonomous is active.
+ *   When toggles[0] is released, manual control resumes immediately.
  *
  * MOTOR TYPE BRANCHING:
  *   DC motors:     speed (-100..+100) multiplied by 2.55 to fill the
@@ -65,65 +93,82 @@ extern volatile bool g_speedsUpdated;
  *   At 50Hz command rate, one dropped command is imperceptible.
  */
 void profile_mecanum_apply(const control_command_t *cmd) {
-  // Extract inputs from command
-  // Right joystick: forward (Y) and strafe (X)
-  // Left control: rotation (dial value or joystick X)
 
-  float vx = 0;    // Strafe
-  float vy = 0;    // Forward
-  float omega = 0; // Rotation
+  float vx = 0.0f;    // Strafe
+  float vy = 0.0f;    // Forward
+  float omega = 0.0f; // Rotation
+  float speedMult = 0.0f;
 
-  float speedMult {};
+  // Tracks whether the toggle was off on the previous call, so we can
+  // detect the rising edge and reset the timer.
+  static bool toggleFlipped = true;
 
-  static bool toggleFlipped { true };
-  static int timerStart {};
+  // Timestamp (ms) of when the current autonomous run started.
+  static unsigned long timerStart = 0UL;
 
-  int driveTime { 10000 }; // driving time in autonomous (in milliseconds)
+  // =========================================================================
+  // INPUT SELECTION: Autonomous vs Manual
+  // =========================================================================
 
-  // Autonomous
   if (cmd->toggles[0]) {
-    // set Forward 
-    vy = 100;
-    
+    // --- AUTONOMOUS MODE ---
+
+    // Rising edge: toggle just turned ON → reset the drive timer
     if (toggleFlipped) {
-
-      // reset timer to current time
       timerStart = millis();
-
-      // set speed multipler to fixed amount (0.30)
-      speedMult = 0.3f;
-
       toggleFlipped = false;
     }
 
-    if (millis() - timerStart >= driveTime) {
-      vy = 0;
+    unsigned long elapsed = millis() - timerStart;
+
+    if (elapsed < AUTONOMOUS_DRIVE_TIME_MS) {
+      // Still within the 10-second window: drive straight forward
+      vy = AUTONOMOUS_FORWARD_SPEED;
+      speedMult = AUTONOMOUS_SPEED_MULT;
+    } else {
+      // Time expired: hold stop until the toggle is released
+      vy = 0.0f;
+      speedMult = 0.0f;
     }
-  }
-  else if (!cmd->toggles[0]) // reset toggle when its flipped off
+
+    // vx and omega intentionally left at 0 — straight line only
+
+  } else {
+    // --- MANUAL CONTROL ---
+
+    // Record that the toggle is currently off so we detect the next
+    // rising edge correctly.
     toggleFlipped = true;
 
-  if (cmd->right.isJoystick && !cmd->toggles[0]) {
-    // vx = cmd->right.x; // Strafe from right X
-    vy = cmd->right.y; // Forward from right Y
+    // Right joystick: forward/back (Y). Strafe (X) is commented out
+    // but left here for easy re-enabling.
+    if (cmd->right.isJoystick) {
+      vx = cmd->right.x; // Strafe from right X
+      vy = cmd->right.y; // Forward from right Y
+    }
+
+    // Left control: rotation
+    if (cmd->left.isJoystick) {
+      omega = cmd->left.x; // Rotation from left joystick X
+    } else {
+      omega = cmd->left.value; // Rotation from dial
+    }
+
+    // Speed slider (0-100 → 0.0-1.0)
+    speedMult = cmd->speed / 100.0f;
   }
 
-  if (cmd->left.isJoystick) {
-    omega = cmd->left.x; // Rotation from left joystick X
-  } else {
-    omega = cmd->left.value; // Rotation from dial
-  }
+  // =========================================================================
+  // KINEMATICS: vx / vy / omega → per-wheel speeds
+  // =========================================================================
 
-  
-  // Speed multiplier (0-100 -> 0.0-1.0)
-  if (!cmd->toggles[0])
-    float speedMult = cmd->speed / 100.0f;
-
-  // Calculate wheel speeds
   WheelSpeeds wheels;
   mecanum_calculate(vx, vy, omega, speedMult, &wheels);
 
-  // Apply to motors based on type
+  // =========================================================================
+  // MOTOR OUTPUT
+  // =========================================================================
+
   bool hasDC = motors_has_dc();
   bool hasSteppers = motors_has_steppers();
 
@@ -137,20 +182,21 @@ void profile_mecanum_apply(const control_command_t *cmd) {
 
   if (hasDC) {
     // DC motors: convert -100..+100 to -255..+255 PWM
-    motor_set_pwm(0, (int16_t)(wheels.frontLeft * 2.55f));
+    motor_set_pwm(0, (int16_t)(wheels.frontLeft  * 2.55f));
     motor_set_pwm(1, (int16_t)(wheels.frontRight * 2.55f));
-    motor_set_pwm(2, (int16_t)(wheels.backLeft * 2.55f));
-    motor_set_pwm(3, (int16_t)(wheels.backRight * 2.55f));
+    motor_set_pwm(2, (int16_t)(wheels.backLeft   * 2.55f));
+    motor_set_pwm(3, (int16_t)(wheels.backRight  * 2.55f));
+
   } else if (hasSteppers) {
     // NOTE: stepperEnableAll() removed - already enabled in setup()
     // and calling it here causes I2C contention with Core 1
 
     // Steppers: convert -100..+100 to steps/sec
     float scale = STEPPER_MAX_SPEED / 100.0f;
-    float s0 = wheels.frontLeft * scale;
+    float s0 = wheels.frontLeft  * scale;
     float s1 = wheels.frontRight * scale;
-    float s2 = wheels.backLeft * scale;
-    float s3 = wheels.backRight * scale;
+    float s2 = wheels.backLeft   * scale;
+    float s3 = wheels.backRight  * scale;
 
     // =================================================================
     // MULTICORE: Send speeds to Core 1 via shared memory
